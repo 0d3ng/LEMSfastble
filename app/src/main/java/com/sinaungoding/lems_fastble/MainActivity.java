@@ -3,6 +3,9 @@ package com.sinaungoding.lems_fastble;
 import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -25,17 +28,20 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.clj.fastble.BleManager;
 import com.clj.fastble.callback.BleGattCallback;
+import com.clj.fastble.callback.BleNotifyCallback;
 import com.clj.fastble.callback.BleScanCallback;
 import com.clj.fastble.data.BleDevice;
 import com.clj.fastble.exception.BleException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = MainActivity.class.getSimpleName();
     private static final int REQUEST_CODE_PERMISSION_LOCATION = 2;
     private static final int REQUEST_CODE_OPEN_GPS = 1;
+    private static final String MAC_RS_BTEVS1 = "E0:37:8B:3C:4E:7B";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,7 +95,8 @@ public class MainActivity extends AppCompatActivity {
             Log.i(TAG, String.format("onActivityResult: %s %b", requestCode, check));
             if (check) {
 //                setScanRule();
-                startScan();
+//                startScan();
+                startConnect();
             }
         }
     }
@@ -140,7 +147,8 @@ public class MainActivity extends AppCompatActivity {
                             .show();
                 } else {
 //                    setScanRule();
-                    startScan();
+//                    startScan();
+                    startConnect();
                 }
                 break;
         }
@@ -165,6 +173,62 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onScanning(BleDevice bleDevice) {
                 Log.i(TAG, String.format("onScanning: %s %s", bleDevice.getName(), bleDevice.getMac()));
+            }
+        });
+    }
+
+    private void startConnect() {
+        BleManager.getInstance().connect(MAC_RS_BTEVS1, new BleGattCallback() {
+            @Override
+            public void onStartConnect() {
+                Log.i(TAG, "onStartConnect: connect to " + MAC_RS_BTEVS1);
+            }
+
+            @Override
+            public void onConnectFail(BleDevice bleDevice, BleException exception) {
+                Log.w(TAG, "onConnectFail: cannot connect to " + bleDevice.getMac(), new Throwable(exception.getDescription()));
+            }
+
+            @Override
+            public void onConnectSuccess(BleDevice bleDevice, BluetoothGatt gatt, int status) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    Log.i(TAG, "onConnectSuccess: " + bleDevice.getMac());
+                    for (BluetoothGattService service : gatt.getServices()) {
+                        for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                            if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_READ) != 0
+                                    && ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY)) != 0) {
+                                try {
+                                    boolean read = gatt.readCharacteristic(characteristic);
+                                    Log.i(TAG, "onConnectSuccess: " + read);
+                                    Log.i(TAG, "onConnectSuccess: " + service.getUuid().toString());
+                                    Log.i(TAG, "onConnectSuccess: " + characteristic.getUuid().toString());
+                                    BluetoothGattDescriptor descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"));
+                                    if (descriptor != null) {
+                                        descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                        boolean b = gatt.writeDescriptor(descriptor);
+                                        Log.i(TAG, "onConnectSuccess: " + b);
+                                        if (b) {
+                                            doNotify(bleDevice, service.getUuid().toString(), characteristic.getUuid().toString());
+                                        }
+                                    }
+                                } catch (SecurityException e) {
+                                    Log.e(TAG, "onConnectSuccess: ", e);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Log.d(TAG, "onConnectSuccess: failed");
+                }
+
+            }
+
+            @Override
+            public void onDisConnected(boolean isActiveDisConnected, BleDevice device, BluetoothGatt gatt, int status) {
+                Log.i(TAG, "onDisConnected: " + device.getMac());
+                if (isActiveDisConnected) {
+                    Toast.makeText(MainActivity.this, "Disconnected " + device.getMac(), Toast.LENGTH_LONG).show();
+                }
             }
         });
     }
@@ -200,5 +264,34 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    private void doNotify(final BleDevice bleDevice, String uuid_service, String uuid_notify) {
+        BleManager.getInstance().notify(bleDevice, uuid_service, uuid_notify, new BleNotifyCallback() {
+            @Override
+            public void onNotifySuccess() {
+                Log.i(TAG, "onNotifySuccess: ");
+            }
+
+            @Override
+            public void onNotifyFailure(BleException exception) {
+                Log.d(TAG, "onNotifyFailure: " + exception.getDescription());
+            }
+
+            @Override
+            public void onCharacteristicChanged(byte[] data) {
+                Log.i(TAG, "onCharacteristicChanged: " + bytearray2Hex(data));
+            }
+        });
+    }
+
+    private static String bytearray2Hex(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : bytes) {
+            // Konversi setiap byte ke hex dan tambahkan spasi
+            hexString.append(String.format("%02X ", b));
+        }
+        // Hapus spasi terakhir
+        return hexString.toString().trim();
     }
 }
