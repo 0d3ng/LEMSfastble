@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">LEMS-fastble</string>
+    <string name="please_open_blue">Please open the Bluetooth</string>
+    <string name="notifyTitle">GPS Open</string>
+    <string name="gpsNotifyMsg">Please open GPS setting</string>
+    <string name="cancel">Cancel</string>
+    <string name="setting">setting</string>
+</resources>
